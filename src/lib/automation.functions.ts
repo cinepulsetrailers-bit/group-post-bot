@@ -304,11 +304,59 @@ export const createPost = createServerFn({ method: "POST" })
     const { error: tErr } = await supabaseAdmin.from("post_targets").insert(targetRows);
     if (tErr) throw new Error(tErr.message);
 
-    if (!isFuture) {
-      const result = await sendPostNow(context.userId, post.id);
-      return { id: post.id, scheduled: false, ...result };
-    }
-    return { id: post.id, scheduled: true, targets: targets.length };
+    // Return immediately — client will drive sending via processPostChunk
+    // to avoid Worker request timeouts on large broadcasts.
+    return {
+      id: post.id,
+      scheduled: !!isFuture,
+      targets: targets.length,
+    };
+  });
+
+// Drives one chunk of pending sends. Client loops this until remaining=0.
+export const processPostChunk = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({ post_id: z.string().uuid(), batch_size: z.number().int().min(1).max(5).optional() }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    return processChunk(context.userId, data.post_id, data.batch_size ?? 2);
+  });
+
+// Live progress for a post
+export const getPostProgress = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ post_id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { count: total } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId);
+    const { count: sent } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId)
+      .eq("status", "sent");
+    const { count: failed } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId)
+      .eq("status", "failed");
+    const { count: pending } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId)
+      .eq("status", "pending");
+    return {
+      total: total ?? 0,
+      sent: sent ?? 0,
+      failed: failed ?? 0,
+      pending: pending ?? 0,
+    };
   });
 
 export const listPosts = createServerFn({ method: "GET" })
