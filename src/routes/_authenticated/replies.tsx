@@ -45,7 +45,7 @@ function RepliesPage() {
   const [activeChat, setActiveChat] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [filter, setFilter] = useState<"all" | "new" | "unread">("all");
 
   useEffect(() => {
     const ch = supabase
@@ -99,6 +99,7 @@ function RepliesPage() {
   const filteredChats = useMemo(() => {
     return replyChats.filter((c) => {
       if (filter === "unread" && c.unread === 0) return false;
+      if (filter === "new" && c.last.direction !== "in") return false;
       if (search) {
         const q = search.toLowerCase();
         if (!c.title.toLowerCase().includes(q) &&
@@ -107,6 +108,11 @@ function RepliesPage() {
       return true;
     });
   }, [replyChats, filter, search]);
+
+  const newCount = useMemo(
+    () => replyChats.filter((c) => c.last.direction === "in").length,
+    [replyChats],
+  );
 
   // Summary stats
   const stats = useMemo(() => {
@@ -205,6 +211,14 @@ function RepliesPage() {
               onClick={() => setFilter("all")}
             >
               All ({stats.chats})
+            </Button>
+            <Button
+              size="sm"
+              variant={filter === "new" ? "default" : "outline"}
+              className="flex-1 h-7"
+              onClick={() => setFilter("new")}
+            >
+              New ({newCount})
             </Button>
             <Button
               size="sm"
