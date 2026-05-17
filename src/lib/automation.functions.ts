@@ -447,13 +447,13 @@ export const replyToChat = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const cfg = await getBridge(context.userId);
     const payload: Record<string, unknown> = {
-      chat_id: String(data.tg_chat_id),
+      tg_chat_id: String(data.tg_chat_id),
       text: data.text,
     };
     if (data.reply_to_tg_id != null) {
-      payload.reply_to = Number(data.reply_to_tg_id);
+      payload.reply_to_msg_id = Number(data.reply_to_tg_id);
     }
-    const res = await bridgeCall<{ message_id: number }>(cfg, "/send_message", payload);
+    const res = await bridgeCall<{ tg_message_id?: number; message_id?: number }>(cfg, "/reply", payload);
     await supabaseAdmin.from("messages").insert({
       user_id: context.userId,
       tg_chat_id: data.tg_chat_id,
