@@ -334,9 +334,16 @@ function ReportsPage() {
                       </p>
                     )}
                     {r.error && (
-                      <p className="text-xs text-red-600 mt-1 break-all font-mono bg-red-50 dark:bg-red-950/30 p-2 rounded">
-                        {r.error}
-                      </p>
+                      <>
+                        {r.category && (
+                          <Badge variant="outline" className="mt-1 text-xs">
+                            {CATEGORY_META[r.category].emoji} {CATEGORY_META[r.category].label}
+                          </Badge>
+                        )}
+                        <p className="text-xs text-red-600 mt-1 break-all font-mono bg-red-50 dark:bg-red-950/30 p-2 rounded">
+                          {r.error}
+                        </p>
+                      </>
                     )}
                   </div>
                 </div>
