@@ -218,7 +218,7 @@ async function processChunk(userId: string, postId: string, batchSize: number) {
     try {
       const variedText = varyMessage(post.body || "");
       const payload: Record<string, unknown> = {
-        chat_id: String(t.tg_chat_id),
+        tg_chat_id: String(t.tg_chat_id),
         text: variedText,
       };
       let endpoint = "/send_message";
@@ -228,20 +228,38 @@ async function processChunk(userId: string, postId: string, batchSize: number) {
         payload.media_type = post.media_type ?? "auto";
         payload.caption = variedText;
       }
-      const res = await bridgeCall<{ message_id: number }>(cfg, endpoint, payload);
+      // Retry up to 3 times on transient bridge errors (502/503/504 = Railway cold start / crash)
+      let res: { tg_message_id?: number; message_id?: number } | null = null;
+      let lastErr: Error | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          res = await bridgeCall<{ tg_message_id?: number; message_id?: number }>(cfg, endpoint, payload);
+          lastErr = null;
+          break;
+        } catch (e) {
+          lastErr = e as Error;
+          const msg = lastErr.message || "";
+          const transient = /\[5(02|03|04)\]/.test(msg) || /failed to respond/i.test(msg) || /timeout/i.test(msg);
+          if (!transient || attempt === 2) break;
+          // exponential backoff: 4s, 8s — gives Railway time to wake up
+          await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)));
+        }
+      }
+      if (lastErr) throw lastErr;
+      const msgId = res?.tg_message_id ?? res?.message_id ?? null;
       await supabaseAdmin
         .from("post_targets")
         .update({
           status: "sent",
-          tg_message_id: res.message_id ?? null,
+          tg_message_id: msgId,
           sent_at: new Date().toISOString(),
         })
         .eq("id", t.id);
-      if (res.message_id) {
+      if (msgId) {
         await supabaseAdmin.from("messages").insert({
           user_id: userId,
           tg_chat_id: Number(t.tg_chat_id),
-          tg_message_id: Number(res.message_id),
+          tg_message_id: Number(msgId),
           text: variedText,
           media_url: post.media_url ?? null,
           direction: "out",
@@ -429,22 +447,22 @@ export const replyToChat = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const cfg = await getBridge(context.userId);
     const payload: Record<string, unknown> = {
-      chat_id: String(data.tg_chat_id),
+      tg_chat_id: String(data.tg_chat_id),
       text: data.text,
     };
     if (data.reply_to_tg_id != null) {
-      payload.reply_to = Number(data.reply_to_tg_id);
+      payload.reply_to_msg_id = Number(data.reply_to_tg_id);
     }
-    const res = await bridgeCall<{ message_id: number }>(cfg, "/send_message", payload);
+    const res = await bridgeCall<{ tg_message_id?: number; message_id?: number }>(cfg, "/reply", payload);
     await supabaseAdmin.from("messages").insert({
       user_id: context.userId,
       tg_chat_id: data.tg_chat_id,
-      tg_message_id: Number(res.message_id),
+      tg_message_id: Number(res.tg_message_id ?? res.message_id),
       text: data.text,
       direction: "out",
       reply_to_tg_id: data.reply_to_tg_id ?? null,
     });
-    return { ok: true, message_id: res.message_id };
+    return { ok: true, message_id: res.tg_message_id ?? res.message_id };
   });
 
 // ---------- Internal cron-triggered runner (no auth — called by /api/public/hooks/run-scheduled) ----------
