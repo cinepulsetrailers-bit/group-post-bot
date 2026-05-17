@@ -341,6 +341,47 @@ export const processPostChunk = createServerFn({ method: "POST" })
     return processChunk(context.userId, data.post_id, data.batch_size ?? 2);
   });
 
+// Detailed per-target delivery report for one post (joins group title)
+export const getPostReport = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ post_id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: post } = await supabaseAdmin
+      .from("posts")
+      .select("id, body, status, created_at, sent_at, scheduled_at, media_url")
+      .eq("id", data.post_id)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (!post) throw new Error("Post not found");
+
+    const { data: targets } = await supabaseAdmin
+      .from("post_targets")
+      .select("id, tg_chat_id, status, error, sent_at, group_id")
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId)
+      .order("status");
+
+    const groupIds = Array.from(new Set((targets ?? []).map((t) => t.group_id).filter(Boolean)));
+    const { data: groups } = groupIds.length
+      ? await supabaseAdmin
+          .from("groups")
+          .select("id, title, username")
+          .in("id", groupIds)
+      : { data: [] as { id: string; title: string; username: string | null }[] };
+    const gmap = new Map((groups ?? []).map((g) => [g.id, g]));
+
+    const rows = (targets ?? []).map((t) => ({
+      id: t.id,
+      tg_chat_id: Number(t.tg_chat_id),
+      status: t.status,
+      error: t.error,
+      sent_at: t.sent_at,
+      group_title: gmap.get(t.group_id)?.title ?? "Unknown group",
+      group_username: gmap.get(t.group_id)?.username ?? null,
+    }));
+    return { post, rows };
+  });
+
 // Live progress for a post
 export const getPostProgress = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
