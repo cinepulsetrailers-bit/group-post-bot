@@ -44,9 +44,15 @@ export const syncGroups = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const cfg = await getBridge(context.userId);
-    const dialogs = await bridgeCall<
-      { chat_id: number | string; title: string; username?: string | null }[]
-    >(cfg, "/list_dialogs", {});
+    const raw = await bridgeCall<unknown>(cfg, "/list_dialogs", {});
+    const dialogs: { chat_id: number | string; title: string; username?: string | null }[] =
+      Array.isArray(raw)
+        ? (raw as any)
+        : Array.isArray((raw as any)?.dialogs)
+          ? (raw as any).dialogs
+          : Array.isArray((raw as any)?.result)
+            ? (raw as any).result
+            : [];
     const rows = dialogs.map((d) => ({
       user_id: context.userId,
       tg_chat_id: Number(d.chat_id),
