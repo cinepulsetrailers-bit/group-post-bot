@@ -51,6 +51,27 @@ export const Route = createFileRoute("/api/public/telegram/inbound")({
           return new Response("bad json", { status: 400 });
         }
 
+        // Reaction payload: { kind: "reaction", tg_chat_id, tg_message_id, emoji, action?, from_id?, from_name?, chat_title? }
+        if (payload.kind === "reaction") {
+          const emoji = (payload.emoji as string) ?? "";
+          if (!emoji) return Response.json({ ok: true, skipped: "no emoji" });
+          const rrow = {
+            user_id: userId,
+            tg_chat_id: Number(payload.tg_chat_id),
+            tg_message_id: Number(payload.tg_message_id),
+            chat_title: (payload.chat_title as string) ?? null,
+            from_id: payload.from_id != null ? Number(payload.from_id) : null,
+            from_name: (payload.from_name as string) ?? null,
+            emoji,
+            action: (payload.action as string) === "remove" ? "remove" : "add",
+          };
+          const { error: rerr } = await supabaseAdmin
+            .from("reactions")
+            .upsert(rrow, { onConflict: "user_id,tg_chat_id,tg_message_id,from_id,emoji" });
+          if (rerr) return Response.json({ error: rerr.message }, { status: 500 });
+          return Response.json({ ok: true });
+        }
+
         const row = {
           user_id: userId,
           tg_chat_id: Number(payload.tg_chat_id),
