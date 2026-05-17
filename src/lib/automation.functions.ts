@@ -134,7 +134,34 @@ async function resolveTargets(
   return data ?? [];
 }
 
-async function sendPostNow(userId: string, postId: string) {
+// Anti-ban helpers shared by send loop
+const rand = (min: number, max: number) =>
+  Math.floor(Math.random() * (max - min + 1)) + min;
+const ZERO_WIDTH = ["\u200B", "\u200C", "\u200D", "\u2060"];
+const VARY_EMOJIS = ["✨", "🔥", "💫", "⭐", "🌟", "💎", "🚀", "⚡", "💯", "🎯"];
+
+function varyMessage(text: string): string {
+  if (!text) return text;
+  let out = text;
+  const insertions = rand(1, 3);
+  for (let n = 0; n < insertions; n++) {
+    const pos = rand(0, out.length);
+    const zw = ZERO_WIDTH[rand(0, ZERO_WIDTH.length - 1)];
+    out = out.slice(0, pos) + zw + out.slice(pos);
+  }
+  const sigCount = rand(1, 2);
+  const sig: string[] = [];
+  const pool = [...VARY_EMOJIS];
+  for (let n = 0; n < sigCount; n++) {
+    const idx = rand(0, pool.length - 1);
+    sig.push(pool.splice(idx, 1)[0]);
+  }
+  return out + "\n" + sig.join(" ");
+}
+
+// Process up to `batchSize` pending targets for a post. Designed to finish
+// well within the serverFn timeout (~25s budget). Returns counts + remaining.
+async function processChunk(userId: string, postId: string, batchSize: number) {
   const { data: post } = await supabaseAdmin
     .from("posts")
     .select("*")
@@ -142,13 +169,42 @@ async function sendPostNow(userId: string, postId: string) {
     .eq("user_id", userId)
     .single();
   if (!post) throw new Error("Post not found");
+
   const { data: targets } = await supabaseAdmin
     .from("post_targets")
     .select("id, tg_chat_id")
     .eq("post_id", postId)
-    .eq("status", "pending");
+    .eq("user_id", userId)
+    .eq("status", "pending")
+    .limit(batchSize);
 
-  await supabaseAdmin.from("posts").update({ status: "sending" }).eq("id", postId);
+  const targetList = targets ?? [];
+  if (targetList.length === 0) {
+    // Nothing left — finalize post status
+    const { count: failedCount } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", postId)
+      .eq("status", "failed");
+    const { count: sentCount } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", postId)
+      .eq("status", "sent");
+    await supabaseAdmin
+      .from("posts")
+      .update({
+        status: (sentCount ?? 0) > 0 ? "sent" : "failed",
+        sent_at: new Date().toISOString(),
+      })
+      .eq("id", postId);
+    return { processed: 0, ok: 0, fail: 0, remaining: 0 };
+  }
+
+  // Mark post as sending if not already
+  if (post.status !== "sending") {
+    await supabaseAdmin.from("posts").update({ status: "sending" }).eq("id", postId);
+  }
 
   const cfg = await getBridge(userId);
   let mediaUrl: string | null = null;
@@ -156,41 +212,6 @@ async function sendPostNow(userId: string, postId: string) {
 
   let ok = 0;
   let fail = 0;
-  const targetList = targets ?? [];
-
-  // Anti-ban strategy:
-  //  - Random initial delay 5-15s (looks human, not script)
-  //  - Random per-send delay 4-9s (~7-15 msgs/min, well under Telegram limits)
-  //  - Message variation per target (zero-width chars, emoji shuffle,
-  //    invisible signature) so duplicate-content spam filter doesn't trigger
-  const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
-  const ZERO_WIDTH = ["\u200B", "\u200C", "\u200D", "\u2060"]; // invisible chars
-  const VARY_EMOJIS = ["✨", "🔥", "💫", "⭐", "🌟", "💎", "🚀", "⚡", "💯", "🎯"];
-
-  const varyMessage = (text: string): string => {
-    if (!text) return text;
-    // 1. Insert 1-3 zero-width chars at random positions (invisible to humans, unique to filter)
-    let out = text;
-    const insertions = rand(1, 3);
-    for (let n = 0; n < insertions; n++) {
-      const pos = rand(0, out.length);
-      const zw = ZERO_WIDTH[rand(0, ZERO_WIDTH.length - 1)];
-      out = out.slice(0, pos) + zw + out.slice(pos);
-    }
-    // 2. Append a random invisible emoji signature on a new line (1-2 emojis)
-    const sigCount = rand(1, 2);
-    const sig: string[] = [];
-    const pool = [...VARY_EMOJIS];
-    for (let n = 0; n < sigCount; n++) {
-      const idx = rand(0, pool.length - 1);
-      sig.push(pool.splice(idx, 1)[0]);
-    }
-    out = out + "\n" + sig.join(" ");
-    return out;
-  };
-
-  // Initial human-like pause before the burst starts
-  await new Promise((r) => setTimeout(r, rand(5000, 15000)));
 
   for (let i = 0; i < targetList.length; i++) {
     const t = targetList[i];
@@ -234,21 +255,19 @@ async function sendPostNow(userId: string, postId: string) {
         .update({ status: "failed", error: (e as Error).message })
         .eq("id", t.id);
     }
+    // small intra-chunk delay (3-6s) — keeps chunk under ~20s for batch=2
     if (i < targetList.length - 1) {
-      // Random delay 4-9s between sends
-      await new Promise((r) => setTimeout(r, rand(4000, 9000)));
+      await new Promise((r) => setTimeout(r, rand(3000, 6000)));
     }
   }
 
-  await supabaseAdmin
-    .from("posts")
-    .update({
-      status: fail === 0 ? "sent" : ok === 0 ? "failed" : "sent",
-      sent_at: new Date().toISOString(),
-    })
-    .eq("id", postId);
+  const { count: remaining } = await supabaseAdmin
+    .from("post_targets")
+    .select("id", { count: "exact", head: true })
+    .eq("post_id", postId)
+    .eq("status", "pending");
 
-  return { ok, fail };
+  return { processed: targetList.length, ok, fail, remaining: remaining ?? 0 };
 }
 
 export const createPost = createServerFn({ method: "POST" })
@@ -285,11 +304,59 @@ export const createPost = createServerFn({ method: "POST" })
     const { error: tErr } = await supabaseAdmin.from("post_targets").insert(targetRows);
     if (tErr) throw new Error(tErr.message);
 
-    if (!isFuture) {
-      const result = await sendPostNow(context.userId, post.id);
-      return { id: post.id, scheduled: false, ...result };
-    }
-    return { id: post.id, scheduled: true, targets: targets.length };
+    // Return immediately — client will drive sending via processPostChunk
+    // to avoid Worker request timeouts on large broadcasts.
+    return {
+      id: post.id,
+      scheduled: !!isFuture,
+      targets: targets.length,
+    };
+  });
+
+// Drives one chunk of pending sends. Client loops this until remaining=0.
+export const processPostChunk = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) =>
+    z.object({ post_id: z.string().uuid(), batch_size: z.number().int().min(1).max(5).optional() }).parse(d),
+  )
+  .handler(async ({ data, context }) => {
+    return processChunk(context.userId, data.post_id, data.batch_size ?? 2);
+  });
+
+// Live progress for a post
+export const getPostProgress = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ post_id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { count: total } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId);
+    const { count: sent } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId)
+      .eq("status", "sent");
+    const { count: failed } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId)
+      .eq("status", "failed");
+    const { count: pending } = await supabaseAdmin
+      .from("post_targets")
+      .select("id", { count: "exact", head: true })
+      .eq("post_id", data.post_id)
+      .eq("user_id", context.userId)
+      .eq("status", "pending");
+    return {
+      total: total ?? 0,
+      sent: sent ?? 0,
+      failed: failed ?? 0,
+      pending: pending ?? 0,
+    };
   });
 
 export const listPosts = createServerFn({ method: "GET" })
@@ -391,7 +458,13 @@ export async function runDuePostsInternal() {
   let count = 0;
   for (const p of due ?? []) {
     try {
-      await sendPostNow(p.user_id, p.id);
+      // Process all pending targets in chunks (cron has no Worker timeout
+      // concerns because it runs as its own request and we cap loop count).
+      let safety = 200;
+      while (safety-- > 0) {
+        const r = await processChunk(p.user_id, p.id, 2);
+        if (r.remaining === 0) break;
+      }
       count++;
     } catch (e) {
       await supabaseAdmin
