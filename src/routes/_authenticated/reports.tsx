@@ -220,6 +220,61 @@ function ReportsPage() {
               />
             </div>
 
+            {/* Failure category breakdown */}
+            {counts.failed > 0 && (
+              <Card className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="font-semibold text-sm">Failure reasons</h3>
+                    {topCategory && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Top issue: <span className="font-medium text-foreground">
+                          {CATEGORY_META[topCategory].emoji} {CATEGORY_META[topCategory].label}
+                        </span> — {CATEGORY_META[topCategory].hint}
+                      </p>
+                    )}
+                  </div>
+                  {categoryFilter !== "all" && (
+                    <Button variant="ghost" size="sm" onClick={() => setCategoryFilter("all")}>
+                      Clear filter
+                    </Button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.entries(categoryCounts) as [ErrorCategory, number][])
+                    .filter(([, n]) => n > 0)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([cat, n]) => {
+                      const meta = CATEGORY_META[cat];
+                      const active = categoryFilter === cat;
+                      const pct = Math.round((n / counts.failed) * 100);
+                      return (
+                        <button
+                          key={cat}
+                          onClick={() => {
+                            setCategoryFilter(active ? "all" : cat);
+                            setStatusFilter("failed");
+                          }}
+                          title={meta.hint}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors",
+                            active
+                              ? "bg-red-100 border-red-300 dark:bg-red-950 dark:border-red-800"
+                              : "hover:bg-accent border-border",
+                          )}
+                        >
+                          <span className="text-base">{meta.emoji}</span>
+                          <span className="font-medium">{meta.label}</span>
+                          <Badge variant="secondary" className="ml-1">
+                            {n} ({pct}%)
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                </div>
+              </Card>
+            )}
+
             {/* Filter bar */}
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
