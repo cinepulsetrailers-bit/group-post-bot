@@ -136,63 +136,84 @@ app.post("/list_dialogs", async (_req, res) => {
 });
 
 // Warm dialogs cache once at boot so getInputEntity can resolve any group
-// the user is a member of without an extra round-trip per send.
+// the user is a member of. We also keep our own id -> entity map because
+// Telegram channel IDs arrive as -100..., while GramJS entities store raw ids.
 let dialogsWarmed = false;
-async function warmDialogs() {
-  if (dialogsWarmed) return;
+const dialogEntityCache = new Map();
+
+function cacheDialogEntity(dialog) {
+  const entity = dialog?.entity;
+  if (!entity) return;
+
+  const keys = new Set();
+  if (dialog.id != null) keys.add(String(dialog.id));
+  if (entity.id != null) {
+    const rawId = String(entity.id);
+    keys.add(rawId);
+    if (entity.className === "Channel") keys.add(`-100${rawId}`);
+    if (entity.className === "Chat") keys.add(`-${rawId}`);
+  }
+
+  for (const key of keys) dialogEntityCache.set(key, entity);
+}
+
+async function warmDialogs(force = false) {
+  if (dialogsWarmed && !force) return;
   try {
-    await client.getDialogs({ limit: 500 });
+    const dialogs = await client.getDialogs({ limit: 500 });
+    if (force) dialogEntityCache.clear();
+    for (const dialog of dialogs) cacheDialogEntity(dialog);
     dialogsWarmed = true;
-    console.log("✅ Dialogs cache warmed");
+    console.log(`✅ Dialogs cache warmed (${dialogEntityCache.size} ids)`);
   } catch (e) {
     console.error("warmDialogs failed:", e?.message ?? e);
   }
 }
 warmDialogs();
 
+async function withTimeout(promise, label, ms = 25000) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 // Resolve a chat id into an InputPeer. Telegram supergroup/channel IDs come
-// as negative bigints prefixed with -100 (e.g. -1001234567890). Stripping the
-// -100 prefix yields the raw channel id. Basic groups are plain negative.
-// DMs are positive user ids.
+// as negative ids prefixed with -100 (e.g. -1001234567890). Avoid constructing
+// InputPeerChannel with accessHash=0 because Telegram rejects it and Railway
+// often surfaces the aborted request as HTTP 502.
 async function resolvePeer(tg_chat_id) {
   const idStr = String(tg_chat_id).trim();
+  if (!/^-?\d+$/.test(idStr)) throw new Error(`Invalid tg_chat_id: ${idStr}`);
 
-  // First try the entity cache / resolver
+  await warmDialogs();
+
+  const cachedEntity = dialogEntityCache.get(idStr);
+  if (cachedEntity) return await client.getInputEntity(cachedEntity);
+
   try {
-    return await client.getInputEntity(idStr);
+    return await client.getInputEntity(BigInt(idStr));
   } catch (e1) {
-    console.error("getInputEntity(string) failed:", e1?.message ?? e1);
+    console.error("getInputEntity(BigInt) failed:", e1?.message ?? e1);
   }
 
-  // Manual construction for supergroups / channels (-100xxxxxxxxxx)
-  if (idStr.startsWith("-100")) {
-    const channelId = BigInt(idStr.slice(4));
-    try {
-      const full = await client.invoke(
-        new Api.channels.GetChannels({
-          id: [new Api.InputChannel({ channelId, accessHash: 0n })],
-        }),
-      );
-      const ch = full.chats?.[0];
-      if (ch?.accessHash != null) {
-        return new Api.InputPeerChannel({ channelId, accessHash: ch.accessHash });
-      }
-    } catch (e2) {
-      console.error("GetChannels failed:", e2?.message ?? e2);
-    }
-    // Last-resort: refresh dialogs then retry getInputEntity
-    dialogsWarmed = false;
-    await warmDialogs();
-    return await client.getInputEntity(idStr);
-  }
+  await warmDialogs(true);
+  const refreshedEntity = dialogEntityCache.get(idStr);
+  if (refreshedEntity) return await client.getInputEntity(refreshedEntity);
 
   // Basic group (negative, no -100 prefix)
   if (idStr.startsWith("-")) {
     return new Api.InputPeerChat({ chatId: BigInt(idStr.slice(1)) });
   }
 
-  // DM / user
-  return await client.getInputEntity(BigInt(idStr));
+  throw new Error(`Chat ${idStr} not found in Telegram dialogs. Make sure this Telegram account is joined to the group, then sync groups again.`);
 }
 
 app.post("/send_message", async (req, res) => {
