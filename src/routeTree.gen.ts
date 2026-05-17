@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedScheduledRouteImport } from './routes/_authenticated/scheduled'
+import { Route as AuthenticatedReportsRouteImport } from './routes/_authenticated/reports'
 import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/inbox'
 import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
 import { Route as AuthenticatedComposeRouteImport } from './routes/_authenticated/compose'
@@ -42,6 +43,11 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
 const AuthenticatedScheduledRoute = AuthenticatedScheduledRouteImport.update({
   id: '/scheduled',
   path: '/scheduled',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedReportsRoute = AuthenticatedReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedInboxRoute = AuthenticatedInboxRouteImport.update({
@@ -78,6 +84,7 @@ export interface FileRoutesByFullPath {
   '/compose': typeof AuthenticatedComposeRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/inbox': typeof AuthenticatedInboxRoute
+  '/reports': typeof AuthenticatedReportsRoute
   '/scheduled': typeof AuthenticatedScheduledRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/compose': typeof AuthenticatedComposeRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/inbox': typeof AuthenticatedInboxRoute
+  '/reports': typeof AuthenticatedReportsRoute
   '/scheduled': typeof AuthenticatedScheduledRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/_authenticated/compose': typeof AuthenticatedComposeRoute
   '/_authenticated/groups': typeof AuthenticatedGroupsRoute
   '/_authenticated/inbox': typeof AuthenticatedInboxRoute
+  '/_authenticated/reports': typeof AuthenticatedReportsRoute
   '/_authenticated/scheduled': typeof AuthenticatedScheduledRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
     | '/compose'
     | '/groups'
     | '/inbox'
+    | '/reports'
     | '/scheduled'
     | '/settings'
     | '/api/public/hooks/run-scheduled'
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/compose'
     | '/groups'
     | '/inbox'
+    | '/reports'
     | '/scheduled'
     | '/settings'
     | '/api/public/hooks/run-scheduled'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/_authenticated/compose'
     | '/_authenticated/groups'
     | '/_authenticated/inbox'
+    | '/_authenticated/reports'
     | '/_authenticated/scheduled'
     | '/_authenticated/settings'
     | '/api/public/hooks/run-scheduled'
@@ -189,6 +201,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedScheduledRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/reports': {
+      id: '/_authenticated/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof AuthenticatedReportsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/inbox': {
       id: '/_authenticated/inbox'
       path: '/inbox'
@@ -231,6 +250,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedComposeRoute: typeof AuthenticatedComposeRoute
   AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
   AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
+  AuthenticatedReportsRoute: typeof AuthenticatedReportsRoute
   AuthenticatedScheduledRoute: typeof AuthenticatedScheduledRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
 }
@@ -239,6 +259,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedComposeRoute: AuthenticatedComposeRoute,
   AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
   AuthenticatedInboxRoute: AuthenticatedInboxRoute,
+  AuthenticatedReportsRoute: AuthenticatedReportsRoute,
   AuthenticatedScheduledRoute: AuthenticatedScheduledRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
 }
