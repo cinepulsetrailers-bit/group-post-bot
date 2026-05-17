@@ -23,6 +23,42 @@ export const Route = createFileRoute("/_authenticated/reports")({
 
 type StatusFilter = "all" | "sent" | "failed" | "pending";
 
+type ErrorCategory =
+  | "timeout"
+  | "flood"
+  | "blocked"
+  | "invalid_chat"
+  | "permission"
+  | "bridge_down"
+  | "auth"
+  | "other";
+
+const CATEGORY_META: Record<ErrorCategory, { label: string; emoji: string; hint: string }> = {
+  timeout: { label: "Timeout", emoji: "⏱️", hint: "Bridge took too long to respond" },
+  flood: { label: "Flood / Rate limit", emoji: "🌊", hint: "Telegram throttled — slow down or wait" },
+  blocked: { label: "Peer blocked / Kicked", emoji: "🚫", hint: "Bot was removed or blocked in this group" },
+  invalid_chat: { label: "Invalid chat", emoji: "❓", hint: "Group not found, deleted, or wrong ID" },
+  permission: { label: "Permission denied", emoji: "🔒", hint: "Not allowed to post (admin-only, restricted)" },
+  bridge_down: { label: "Bridge down (502)", emoji: "💥", hint: "Railway bridge crashed or sleeping" },
+  auth: { label: "Auth / Session", emoji: "🔑", hint: "Telegram session expired — re-login bridge" },
+  other: { label: "Other", emoji: "❔", hint: "Uncategorized error" },
+};
+
+function categorizeError(err: string | null | undefined): ErrorCategory {
+  if (!err) return "other";
+  const e = err.toLowerCase();
+  if (/\b50(2|3|4)\b|failed to respond|bad gateway|service unavailable/.test(e)) return "bridge_down";
+  if (/timeout|timed out|etimedout/.test(e)) return "timeout";
+  if (/flood|too many requests|slowmode|slow_mode|429/.test(e)) return "flood";
+  if (/blocked|kicked|user_banned|banned_in_channel|left the chat|chat_write_forbidden|forbidden/.test(e))
+    return "blocked";
+  if (/peer_id_invalid|chat not found|chat_id_invalid|invalid chat|peer not found|channel_invalid/.test(e))
+    return "invalid_chat";
+  if (/permission|not_allowed|admin_required|need administrator|rights/.test(e)) return "permission";
+  if (/unauthorized|auth_key|session|401|sign in/.test(e)) return "auth";
+  return "other";
+}
+
 function ReportsPage() {
   const listPostsFn = useServerFn(listPosts);
   const getReportFn = useServerFn(getPostReport);
