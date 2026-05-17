@@ -157,22 +157,55 @@ async function sendPostNow(userId: string, postId: string) {
   let ok = 0;
   let fail = 0;
   const targetList = targets ?? [];
-  // Anti-ban: ~3s between sends keeps us under Telegram's ~20 msg/min
-  // userbot safety threshold for messages to different chats.
-  const DELAY_MS = 3000;
+
+  // Anti-ban strategy:
+  //  - Random initial delay 5-15s (looks human, not script)
+  //  - Random per-send delay 4-9s (~7-15 msgs/min, well under Telegram limits)
+  //  - Message variation per target (zero-width chars, emoji shuffle,
+  //    invisible signature) so duplicate-content spam filter doesn't trigger
+  const rand = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const ZERO_WIDTH = ["\u200B", "\u200C", "\u200D", "\u2060"]; // invisible chars
+  const VARY_EMOJIS = ["✨", "🔥", "💫", "⭐", "🌟", "💎", "🚀", "⚡", "💯", "🎯"];
+
+  const varyMessage = (text: string): string => {
+    if (!text) return text;
+    // 1. Insert 1-3 zero-width chars at random positions (invisible to humans, unique to filter)
+    let out = text;
+    const insertions = rand(1, 3);
+    for (let n = 0; n < insertions; n++) {
+      const pos = rand(0, out.length);
+      const zw = ZERO_WIDTH[rand(0, ZERO_WIDTH.length - 1)];
+      out = out.slice(0, pos) + zw + out.slice(pos);
+    }
+    // 2. Append a random invisible emoji signature on a new line (1-2 emojis)
+    const sigCount = rand(1, 2);
+    const sig: string[] = [];
+    const pool = [...VARY_EMOJIS];
+    for (let n = 0; n < sigCount; n++) {
+      const idx = rand(0, pool.length - 1);
+      sig.push(pool.splice(idx, 1)[0]);
+    }
+    out = out + "\n" + sig.join(" ");
+    return out;
+  };
+
+  // Initial human-like pause before the burst starts
+  await new Promise((r) => setTimeout(r, rand(5000, 15000)));
+
   for (let i = 0; i < targetList.length; i++) {
     const t = targetList[i];
     try {
+      const variedText = varyMessage(post.body || "");
       const payload: Record<string, unknown> = {
         chat_id: String(t.tg_chat_id),
-        text: post.body || "",
+        text: variedText,
       };
       let endpoint = "/send_message";
       if (mediaUrl) {
         endpoint = "/send_media";
         payload.media_url = mediaUrl;
         payload.media_type = post.media_type ?? "auto";
-        payload.caption = post.body || "";
+        payload.caption = variedText;
       }
       const res = await bridgeCall<{ message_id: number }>(cfg, endpoint, payload);
       await supabaseAdmin
@@ -188,7 +221,7 @@ async function sendPostNow(userId: string, postId: string) {
           user_id: userId,
           tg_chat_id: Number(t.tg_chat_id),
           tg_message_id: Number(res.message_id),
-          text: post.body || null,
+          text: variedText,
           media_url: post.media_url ?? null,
           direction: "out",
         });
@@ -202,7 +235,8 @@ async function sendPostNow(userId: string, postId: string) {
         .eq("id", t.id);
     }
     if (i < targetList.length - 1) {
-      await new Promise((r) => setTimeout(r, DELAY_MS));
+      // Random delay 4-9s between sends
+      await new Promise((r) => setTimeout(r, rand(4000, 9000)));
     }
   }
 
