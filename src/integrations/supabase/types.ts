@@ -14,7 +14,213 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bridge_config: {
+        Row: {
+          base_url: string
+          shared_secret: string
+          updated_at: string
+          user_id: string
+          webhook_secret: string
+        }
+        Insert: {
+          base_url?: string
+          shared_secret?: string
+          updated_at?: string
+          user_id: string
+          webhook_secret?: string
+        }
+        Update: {
+          base_url?: string
+          shared_secret?: string
+          updated_at?: string
+          user_id?: string
+          webhook_secret?: string
+        }
+        Relationships: []
+      }
+      groups: {
+        Row: {
+          id: string
+          is_selected: boolean
+          synced_at: string
+          tg_chat_id: number
+          title: string
+          user_id: string
+          username: string | null
+        }
+        Insert: {
+          id?: string
+          is_selected?: boolean
+          synced_at?: string
+          tg_chat_id: number
+          title: string
+          user_id: string
+          username?: string | null
+        }
+        Update: {
+          id?: string
+          is_selected?: boolean
+          synced_at?: string
+          tg_chat_id?: number
+          title?: string
+          user_id?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      messages: {
+        Row: {
+          chat_title: string | null
+          created_at: string
+          direction: string
+          from_id: number | null
+          from_name: string | null
+          id: string
+          media_url: string | null
+          read_at: string | null
+          reply_to_tg_id: number | null
+          text: string | null
+          tg_chat_id: number
+          tg_message_id: number
+          user_id: string
+        }
+        Insert: {
+          chat_title?: string | null
+          created_at?: string
+          direction: string
+          from_id?: number | null
+          from_name?: string | null
+          id?: string
+          media_url?: string | null
+          read_at?: string | null
+          reply_to_tg_id?: number | null
+          text?: string | null
+          tg_chat_id: number
+          tg_message_id: number
+          user_id: string
+        }
+        Update: {
+          chat_title?: string | null
+          created_at?: string
+          direction?: string
+          from_id?: number | null
+          from_name?: string | null
+          id?: string
+          media_url?: string | null
+          read_at?: string | null
+          reply_to_tg_id?: number | null
+          text?: string | null
+          tg_chat_id?: number
+          tg_message_id?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      post_targets: {
+        Row: {
+          error: string | null
+          group_id: string
+          id: string
+          post_id: string
+          sent_at: string | null
+          status: string
+          tg_chat_id: number
+          tg_message_id: number | null
+          user_id: string
+        }
+        Insert: {
+          error?: string | null
+          group_id: string
+          id?: string
+          post_id: string
+          sent_at?: string | null
+          status?: string
+          tg_chat_id: number
+          tg_message_id?: number | null
+          user_id: string
+        }
+        Update: {
+          error?: string | null
+          group_id?: string
+          id?: string
+          post_id?: string
+          sent_at?: string | null
+          status?: string
+          tg_chat_id?: number
+          tg_message_id?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_targets_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "post_targets_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      posts: {
+        Row: {
+          body: string
+          created_at: string
+          id: string
+          media_type: string | null
+          media_url: string | null
+          scheduled_at: string | null
+          sent_at: string | null
+          status: Database["public"]["Enums"]["post_status"]
+          user_id: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          id?: string
+          media_type?: string | null
+          media_url?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["post_status"]
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          id?: string
+          media_type?: string | null
+          media_url?: string | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: Database["public"]["Enums"]["post_status"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +229,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      post_status: "draft" | "queued" | "sending" | "sent" | "failed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +356,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      post_status: ["draft", "queued", "sending", "sent", "failed"],
+    },
   },
 } as const
