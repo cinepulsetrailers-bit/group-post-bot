@@ -19,6 +19,7 @@ import { Route as AuthenticatedRepliesRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/inbox'
 import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
 import { Route as AuthenticatedComposeRouteImport } from './routes/_authenticated/compose'
+import { Route as AuthenticatedActivityRouteImport } from './routes/_authenticated/activity'
 import { Route as ApiPublicTelegramInboundRouteImport } from './routes/api/public/telegram/inbound'
 import { Route as ApiPublicHooksRunScheduledRouteImport } from './routes/api/public/hooks/run-scheduled'
 
@@ -71,6 +72,11 @@ const AuthenticatedComposeRoute = AuthenticatedComposeRouteImport.update({
   path: '/compose',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedActivityRoute = AuthenticatedActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const ApiPublicTelegramInboundRoute =
   ApiPublicTelegramInboundRouteImport.update({
     id: '/api/public/telegram/inbound',
@@ -87,6 +93,7 @@ const ApiPublicHooksRunScheduledRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/activity': typeof AuthenticatedActivityRoute
   '/compose': typeof AuthenticatedComposeRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/inbox': typeof AuthenticatedInboxRoute
@@ -100,6 +107,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/activity': typeof AuthenticatedActivityRoute
   '/compose': typeof AuthenticatedComposeRoute
   '/groups': typeof AuthenticatedGroupsRoute
   '/inbox': typeof AuthenticatedInboxRoute
@@ -115,6 +123,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
+  '/_authenticated/activity': typeof AuthenticatedActivityRoute
   '/_authenticated/compose': typeof AuthenticatedComposeRoute
   '/_authenticated/groups': typeof AuthenticatedGroupsRoute
   '/_authenticated/inbox': typeof AuthenticatedInboxRoute
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/activity'
     | '/compose'
     | '/groups'
     | '/inbox'
@@ -143,6 +153,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/activity'
     | '/compose'
     | '/groups'
     | '/inbox'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/login'
+    | '/_authenticated/activity'
     | '/_authenticated/compose'
     | '/_authenticated/groups'
     | '/_authenticated/inbox'
@@ -248,6 +260,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedComposeRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/activity': {
+      id: '/_authenticated/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AuthenticatedActivityRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/api/public/telegram/inbound': {
       id: '/api/public/telegram/inbound'
       path: '/api/public/telegram/inbound'
@@ -266,6 +285,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteChildren {
+  AuthenticatedActivityRoute: typeof AuthenticatedActivityRoute
   AuthenticatedComposeRoute: typeof AuthenticatedComposeRoute
   AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
   AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
@@ -276,6 +296,7 @@ interface AuthenticatedRouteChildren {
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedActivityRoute: AuthenticatedActivityRoute,
   AuthenticatedComposeRoute: AuthenticatedComposeRoute,
   AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
   AuthenticatedInboxRoute: AuthenticatedInboxRoute,
@@ -299,3 +320,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
