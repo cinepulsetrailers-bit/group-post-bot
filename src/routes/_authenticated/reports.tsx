@@ -64,6 +64,7 @@ function ReportsPage() {
   const getReportFn = useServerFn(getPostReport);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<ErrorCategory | "all">("all");
   const [search, setSearch] = useState("");
 
   const postsQ = useQuery({
@@ -79,7 +80,11 @@ function ReportsPage() {
     refetchInterval: 4000,
   });
 
-  const rows = reportQ.data?.rows ?? [];
+  const rows = (reportQ.data?.rows ?? []).map((r) => ({
+    ...r,
+    category: r.status === "failed" ? categorizeError(r.error) : null,
+  }));
+
   const counts = useMemo(() => {
     const c = { sent: 0, failed: 0, pending: 0, total: rows.length };
     for (const r of rows) {
@@ -90,9 +95,30 @@ function ReportsPage() {
     return c;
   }, [rows]);
 
+  const categoryCounts = useMemo(() => {
+    const c: Record<ErrorCategory, number> = {
+      timeout: 0, flood: 0, blocked: 0, invalid_chat: 0,
+      permission: 0, bridge_down: 0, auth: 0, other: 0,
+    };
+    for (const r of rows) {
+      if (r.category) c[r.category]++;
+    }
+    return c;
+  }, [rows]);
+
+  const topCategory = useMemo(() => {
+    const entries = (Object.entries(categoryCounts) as [ErrorCategory, number][])
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1]);
+    return entries[0]?.[0] ?? null;
+  }, [categoryCounts]);
+
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (categoryFilter !== "all") {
+        if (r.status !== "failed" || r.category !== categoryFilter) return false;
+      }
       if (search) {
         const q = search.toLowerCase();
         const hay = `${r.group_title} ${r.group_username ?? ""} ${r.tg_chat_id} ${r.error ?? ""}`.toLowerCase();
@@ -100,7 +126,7 @@ function ReportsPage() {
       }
       return true;
     });
-  }, [rows, statusFilter, search]);
+  }, [rows, statusFilter, categoryFilter, search]);
 
   const exportCsv = () => {
     if (!filtered.length) return;
