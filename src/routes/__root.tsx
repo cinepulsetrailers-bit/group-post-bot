@@ -33,7 +33,9 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
-  console.error(error);
+  // Logs on both server (SSR pass) and client. Stack is preserved by passing
+  // the Error object directly, not error.message.
+  console.error("[route-error]", error?.name, error?.message, "\n", error?.stack ?? error);
   const router = useRouter();
 
   return (

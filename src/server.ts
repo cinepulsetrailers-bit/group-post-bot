@@ -1,7 +1,23 @@
 import "./lib/error-capture";
 
-import { consumeLastCapturedError } from "./lib/error-capture";
+import { consumeLastCapturedError, drainRecentErrors, formatError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+
+function logSsrFailure(label: string, request: Request, error: unknown, extras?: unknown[]) {
+  const url = (() => {
+    try {
+      return new URL(request.url).pathname + new URL(request.url).search;
+    } catch {
+      return request.url;
+    }
+  })();
+  console.error(
+    `[ssr-failure] ${label} ${request.method} ${url}\n${formatError(error)}`,
+  );
+  if (extras && extras.length) {
+    for (const e of extras) console.error(`[ssr-failure] related:\n${formatError(e)}`);
+  }
+}
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -62,7 +78,6 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
     return response;
   }
 
-  console.error(consumeLastCapturedError() ?? new Error(`h3 swallowed SSR error: ${body}`));
   return brandedErrorResponse();
 }
 
@@ -71,9 +86,16 @@ export default {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      const normalized = await normalizeCatastrophicSsrResponse(response);
+      if (normalized !== response) {
+        const captured =
+          consumeLastCapturedError() ??
+          new Error(`h3 swallowed SSR error (body hidden) — see preceding [ssr-capture] logs`);
+        logSsrFailure("h3-swallowed", request, captured, drainRecentErrors());
+      }
+      return normalized;
     } catch (error) {
-      console.error(error);
+      logSsrFailure("thrown", request, error, drainRecentErrors());
       return brandedErrorResponse();
     }
   },
