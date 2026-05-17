@@ -156,7 +156,12 @@ async function sendPostNow(userId: string, postId: string) {
 
   let ok = 0;
   let fail = 0;
-  for (const t of targets ?? []) {
+  const targetList = targets ?? [];
+  // Anti-ban: ~3s between sends keeps us under Telegram's ~20 msg/min
+  // userbot safety threshold for messages to different chats.
+  const DELAY_MS = 3000;
+  for (let i = 0; i < targetList.length; i++) {
+    const t = targetList[i];
     try {
       const payload: Record<string, unknown> = {
         chat_id: String(t.tg_chat_id),
@@ -178,7 +183,6 @@ async function sendPostNow(userId: string, postId: string) {
           sent_at: new Date().toISOString(),
         })
         .eq("id", t.id);
-      // record outgoing message for inbox threading
       if (res.message_id) {
         await supabaseAdmin.from("messages").insert({
           user_id: userId,
@@ -196,6 +200,9 @@ async function sendPostNow(userId: string, postId: string) {
         .from("post_targets")
         .update({ status: "failed", error: (e as Error).message })
         .eq("id", t.id);
+    }
+    if (i < targetList.length - 1) {
+      await new Promise((r) => setTimeout(r, DELAY_MS));
     }
   }
 
