@@ -135,35 +135,61 @@ app.post("/list_dialogs", async (_req, res) => {
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
+// Resolve a chat id (string, possibly negative like -1001234567890) into an
+// InputPeer entity that GramJS can actually use. Passing a raw BigInt makes
+// GramJS try to construct an InputPeerUser, which throws inside the MTProto
+// serializer and tears down the whole Node process — hence the 502s.
+async function resolvePeer(tg_chat_id) {
+  const idStr = String(tg_chat_id);
+  try {
+    return await client.getInputEntity(idStr);
+  } catch {
+    // Fallback: try as BigInt (DMs / known users)
+    return await client.getInputEntity(BigInt(idStr));
+  }
+}
+
 app.post("/send_message", async (req, res) => {
   try {
     const { tg_chat_id, text } = req.body;
-    const sent = await client.sendMessage(BigInt(tg_chat_id), { message: text });
+    const peer = await resolvePeer(tg_chat_id);
+    const sent = await client.sendMessage(peer, { message: text });
     res.json({ tg_message_id: sent.id });
-  } catch (e) { res.status(500).json({ error: String(e) }); }
+  } catch (e) {
+    console.error("send_message error:", e?.message ?? e);
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });
 
 app.post("/send_media", async (req, res) => {
   try {
     const { tg_chat_id, media_url, caption } = req.body;
+    const peer = await resolvePeer(tg_chat_id);
     const buf = Buffer.from(await (await fetch(media_url)).arrayBuffer());
-    const sent = await client.sendFile(BigInt(tg_chat_id), {
+    const sent = await client.sendFile(peer, {
       file: buf,
       caption: caption ?? "",
     });
     res.json({ tg_message_id: sent.id });
-  } catch (e) { res.status(500).json({ error: String(e) }); }
+  } catch (e) {
+    console.error("send_media error:", e?.message ?? e);
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });
 
 app.post("/reply", async (req, res) => {
   try {
     const { tg_chat_id, reply_to_msg_id, text } = req.body;
-    const sent = await client.sendMessage(BigInt(tg_chat_id), {
+    const peer = await resolvePeer(tg_chat_id);
+    const sent = await client.sendMessage(peer, {
       message: text,
       replyTo: reply_to_msg_id,
     });
     res.json({ tg_message_id: sent.id });
-  } catch (e) { res.status(500).json({ error: String(e) }); }
+  } catch (e) {
+    console.error("reply error:", e?.message ?? e);
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
 });
 
 app.listen(PORT, () => console.log(`🌉 Bridge listening on :${PORT}`));
