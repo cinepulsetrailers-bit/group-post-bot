@@ -135,18 +135,64 @@ app.post("/list_dialogs", async (_req, res) => {
   } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
-// Resolve a chat id (string, possibly negative like -1001234567890) into an
-// InputPeer entity that GramJS can actually use. Passing a raw BigInt makes
-// GramJS try to construct an InputPeerUser, which throws inside the MTProto
-// serializer and tears down the whole Node process — hence the 502s.
+// Warm dialogs cache once at boot so getInputEntity can resolve any group
+// the user is a member of without an extra round-trip per send.
+let dialogsWarmed = false;
+async function warmDialogs() {
+  if (dialogsWarmed) return;
+  try {
+    await client.getDialogs({ limit: 500 });
+    dialogsWarmed = true;
+    console.log("✅ Dialogs cache warmed");
+  } catch (e) {
+    console.error("warmDialogs failed:", e?.message ?? e);
+  }
+}
+warmDialogs();
+
+// Resolve a chat id into an InputPeer. Telegram supergroup/channel IDs come
+// as negative bigints prefixed with -100 (e.g. -1001234567890). Stripping the
+// -100 prefix yields the raw channel id. Basic groups are plain negative.
+// DMs are positive user ids.
 async function resolvePeer(tg_chat_id) {
-  const idStr = String(tg_chat_id);
+  const idStr = String(tg_chat_id).trim();
+
+  // First try the entity cache / resolver
   try {
     return await client.getInputEntity(idStr);
-  } catch {
-    // Fallback: try as BigInt (DMs / known users)
-    return await client.getInputEntity(BigInt(idStr));
+  } catch (e1) {
+    console.error("getInputEntity(string) failed:", e1?.message ?? e1);
   }
+
+  // Manual construction for supergroups / channels (-100xxxxxxxxxx)
+  if (idStr.startsWith("-100")) {
+    const channelId = BigInt(idStr.slice(4));
+    try {
+      const full = await client.invoke(
+        new Api.channels.GetChannels({
+          id: [new Api.InputChannel({ channelId, accessHash: 0n })],
+        }),
+      );
+      const ch = full.chats?.[0];
+      if (ch?.accessHash != null) {
+        return new Api.InputPeerChannel({ channelId, accessHash: ch.accessHash });
+      }
+    } catch (e2) {
+      console.error("GetChannels failed:", e2?.message ?? e2);
+    }
+    // Last-resort: refresh dialogs then retry getInputEntity
+    dialogsWarmed = false;
+    await warmDialogs();
+    return await client.getInputEntity(idStr);
+  }
+
+  // Basic group (negative, no -100 prefix)
+  if (idStr.startsWith("-")) {
+    return new Api.InputPeerChat({ chatId: BigInt(idStr.slice(1)) });
+  }
+
+  // DM / user
+  return await client.getInputEntity(BigInt(idStr));
 }
 
 app.post("/send_message", async (req, res) => {
