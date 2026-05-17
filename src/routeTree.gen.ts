@@ -9,14 +9,55 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedScheduledRouteImport } from './routes/_authenticated/scheduled'
+import { Route as AuthenticatedInboxRouteImport } from './routes/_authenticated/inbox'
+import { Route as AuthenticatedGroupsRouteImport } from './routes/_authenticated/groups'
+import { Route as AuthenticatedComposeRouteImport } from './routes/_authenticated/compose'
 import { Route as ApiPublicTelegramInboundRouteImport } from './routes/api/public/telegram/inbound'
 import { Route as ApiPublicHooksRunScheduledRouteImport } from './routes/api/public/hooks/run-scheduled'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedScheduledRoute = AuthenticatedScheduledRouteImport.update({
+  id: '/scheduled',
+  path: '/scheduled',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedInboxRoute = AuthenticatedInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedGroupsRoute = AuthenticatedGroupsRouteImport.update({
+  id: '/groups',
+  path: '/groups',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedComposeRoute = AuthenticatedComposeRouteImport.update({
+  id: '/compose',
+  path: '/compose',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
 const ApiPublicTelegramInboundRoute =
   ApiPublicTelegramInboundRouteImport.update({
@@ -33,17 +74,36 @@ const ApiPublicHooksRunScheduledRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/compose': typeof AuthenticatedComposeRoute
+  '/groups': typeof AuthenticatedGroupsRoute
+  '/inbox': typeof AuthenticatedInboxRoute
+  '/scheduled': typeof AuthenticatedScheduledRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
   '/api/public/telegram/inbound': typeof ApiPublicTelegramInboundRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/compose': typeof AuthenticatedComposeRoute
+  '/groups': typeof AuthenticatedGroupsRoute
+  '/inbox': typeof AuthenticatedInboxRoute
+  '/scheduled': typeof AuthenticatedScheduledRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
   '/api/public/telegram/inbound': typeof ApiPublicTelegramInboundRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
+  '/login': typeof LoginRoute
+  '/_authenticated/compose': typeof AuthenticatedComposeRoute
+  '/_authenticated/groups': typeof AuthenticatedGroupsRoute
+  '/_authenticated/inbox': typeof AuthenticatedInboxRoute
+  '/_authenticated/scheduled': typeof AuthenticatedScheduledRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
   '/api/public/telegram/inbound': typeof ApiPublicTelegramInboundRoute
 }
@@ -51,31 +111,104 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
+    | '/compose'
+    | '/groups'
+    | '/inbox'
+    | '/scheduled'
+    | '/settings'
     | '/api/public/hooks/run-scheduled'
     | '/api/public/telegram/inbound'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/public/hooks/run-scheduled' | '/api/public/telegram/inbound'
+  to:
+    | '/'
+    | '/login'
+    | '/compose'
+    | '/groups'
+    | '/inbox'
+    | '/scheduled'
+    | '/settings'
+    | '/api/public/hooks/run-scheduled'
+    | '/api/public/telegram/inbound'
   id:
     | '__root__'
     | '/'
+    | '/_authenticated'
+    | '/login'
+    | '/_authenticated/compose'
+    | '/_authenticated/groups'
+    | '/_authenticated/inbox'
+    | '/_authenticated/scheduled'
+    | '/_authenticated/settings'
     | '/api/public/hooks/run-scheduled'
     | '/api/public/telegram/inbound'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
+  LoginRoute: typeof LoginRoute
   ApiPublicHooksRunScheduledRoute: typeof ApiPublicHooksRunScheduledRoute
   ApiPublicTelegramInboundRoute: typeof ApiPublicTelegramInboundRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/scheduled': {
+      id: '/_authenticated/scheduled'
+      path: '/scheduled'
+      fullPath: '/scheduled'
+      preLoaderRoute: typeof AuthenticatedScheduledRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/inbox': {
+      id: '/_authenticated/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AuthenticatedInboxRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/groups': {
+      id: '/_authenticated/groups'
+      path: '/groups'
+      fullPath: '/groups'
+      preLoaderRoute: typeof AuthenticatedGroupsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/compose': {
+      id: '/_authenticated/compose'
+      path: '/compose'
+      fullPath: '/compose'
+      preLoaderRoute: typeof AuthenticatedComposeRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/api/public/telegram/inbound': {
       id: '/api/public/telegram/inbound'
@@ -94,11 +227,43 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedRouteChildren {
+  AuthenticatedComposeRoute: typeof AuthenticatedComposeRoute
+  AuthenticatedGroupsRoute: typeof AuthenticatedGroupsRoute
+  AuthenticatedInboxRoute: typeof AuthenticatedInboxRoute
+  AuthenticatedScheduledRoute: typeof AuthenticatedScheduledRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedComposeRoute: AuthenticatedComposeRoute,
+  AuthenticatedGroupsRoute: AuthenticatedGroupsRoute,
+  AuthenticatedInboxRoute: AuthenticatedInboxRoute,
+  AuthenticatedScheduledRoute: AuthenticatedScheduledRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
+  LoginRoute: LoginRoute,
   ApiPublicHooksRunScheduledRoute: ApiPublicHooksRunScheduledRoute,
   ApiPublicTelegramInboundRoute: ApiPublicTelegramInboundRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
