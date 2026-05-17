@@ -220,7 +220,7 @@ app.post("/send_message", async (req, res) => {
   try {
     const { tg_chat_id, text } = req.body;
     const peer = await resolvePeer(tg_chat_id);
-    const sent = await client.sendMessage(peer, { message: text });
+    const sent = await withTimeout(client.sendMessage(peer, { message: text }), "send_message");
     res.json({ tg_message_id: sent.id });
   } catch (e) {
     console.error("send_message error:", e?.message ?? e);
@@ -232,11 +232,13 @@ app.post("/send_media", async (req, res) => {
   try {
     const { tg_chat_id, media_url, caption } = req.body;
     const peer = await resolvePeer(tg_chat_id);
-    const buf = Buffer.from(await (await fetch(media_url)).arrayBuffer());
-    const sent = await client.sendFile(peer, {
+    const mediaResponse = await withTimeout(fetch(media_url), "fetch media", 25000);
+    if (!mediaResponse.ok) throw new Error(`Media download failed: ${mediaResponse.status}`);
+    const buf = Buffer.from(await withTimeout(mediaResponse.arrayBuffer(), "read media", 25000));
+    const sent = await withTimeout(client.sendFile(peer, {
       file: buf,
       caption: caption ?? "",
-    });
+    }), "send_media", 60000);
     res.json({ tg_message_id: sent.id });
   } catch (e) {
     console.error("send_media error:", e?.message ?? e);
@@ -248,10 +250,10 @@ app.post("/reply", async (req, res) => {
   try {
     const { tg_chat_id, reply_to_msg_id, text } = req.body;
     const peer = await resolvePeer(tg_chat_id);
-    const sent = await client.sendMessage(peer, {
+    const sent = await withTimeout(client.sendMessage(peer, {
       message: text,
       replyTo: reply_to_msg_id,
-    });
+    }), "reply");
     res.json({ tg_message_id: sent.id });
   } catch (e) {
     console.error("reply error:", e?.message ?? e);
