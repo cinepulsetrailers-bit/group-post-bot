@@ -10,33 +10,62 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiPublicTelegramInboundRouteImport } from './routes/api/public/telegram/inbound'
+import { Route as ApiPublicHooksRunScheduledRouteImport } from './routes/api/public/hooks/run-scheduled'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicTelegramInboundRoute =
+  ApiPublicTelegramInboundRouteImport.update({
+    id: '/api/public/telegram/inbound',
+    path: '/api/public/telegram/inbound',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksRunScheduledRoute =
+  ApiPublicHooksRunScheduledRouteImport.update({
+    id: '/api/public/hooks/run-scheduled',
+    path: '/api/public/hooks/run-scheduled',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
+  '/api/public/telegram/inbound': typeof ApiPublicTelegramInboundRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
+  '/api/public/telegram/inbound': typeof ApiPublicTelegramInboundRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/public/hooks/run-scheduled': typeof ApiPublicHooksRunScheduledRoute
+  '/api/public/telegram/inbound': typeof ApiPublicTelegramInboundRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/api/public/hooks/run-scheduled'
+    | '/api/public/telegram/inbound'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/api/public/hooks/run-scheduled' | '/api/public/telegram/inbound'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/public/hooks/run-scheduled'
+    | '/api/public/telegram/inbound'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiPublicHooksRunScheduledRoute: typeof ApiPublicHooksRunScheduledRoute
+  ApiPublicTelegramInboundRoute: typeof ApiPublicTelegramInboundRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,12 +77,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/telegram/inbound': {
+      id: '/api/public/telegram/inbound'
+      path: '/api/public/telegram/inbound'
+      fullPath: '/api/public/telegram/inbound'
+      preLoaderRoute: typeof ApiPublicTelegramInboundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/run-scheduled': {
+      id: '/api/public/hooks/run-scheduled'
+      path: '/api/public/hooks/run-scheduled'
+      fullPath: '/api/public/hooks/run-scheduled'
+      preLoaderRoute: typeof ApiPublicHooksRunScheduledRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiPublicHooksRunScheduledRoute: ApiPublicHooksRunScheduledRoute,
+  ApiPublicTelegramInboundRoute: ApiPublicTelegramInboundRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
