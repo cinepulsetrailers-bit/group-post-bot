@@ -2,7 +2,7 @@ import { createFileRoute, Outlet, redirect, Link, useNavigate, useLocation } fro
 import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { Inbox, Send, Users, Calendar, Settings as SettingsIcon, LogOut, BarChart3, MessageSquare } from "lucide-react";
+import { Inbox, Send, Users, Calendar, Settings as SettingsIcon, LogOut, BarChart3, MessageSquare, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/_authenticated")({
 const NAV = [
   { to: "/inbox", label: "Inbox", icon: Inbox },
   { to: "/replies", label: "Replies", icon: MessageSquare },
+  { to: "/activity", label: "Group Activity", icon: Activity },
   { to: "/compose", label: "Compose", icon: Send },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/scheduled", label: "Scheduled", icon: Calendar },

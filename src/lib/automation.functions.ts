@@ -459,6 +459,19 @@ export const listMessages = createServerFn({ method: "GET" })
     return data ?? [];
   });
 
+export const listReactions = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data, error } = await supabaseAdmin
+      .from("reactions")
+      .select("*")
+      .eq("user_id", context.userId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+
 export const markChatRead = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ tg_chat_id: z.number() }).parse(d))

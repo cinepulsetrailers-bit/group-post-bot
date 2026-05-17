@@ -221,6 +221,45 @@ export type Database = {
         }
         Relationships: []
       }
+      reactions: {
+        Row: {
+          action: string
+          chat_title: string | null
+          created_at: string
+          emoji: string
+          from_id: number | null
+          from_name: string | null
+          id: string
+          tg_chat_id: number
+          tg_message_id: number
+          user_id: string
+        }
+        Insert: {
+          action?: string
+          chat_title?: string | null
+          created_at?: string
+          emoji: string
+          from_id?: number | null
+          from_name?: string | null
+          id?: string
+          tg_chat_id: number
+          tg_message_id: number
+          user_id: string
+        }
+        Update: {
+          action?: string
+          chat_title?: string | null
+          created_at?: string
+          emoji?: string
+          from_id?: number | null
+          from_name?: string | null
+          id?: string
+          tg_chat_id?: number
+          tg_message_id?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
