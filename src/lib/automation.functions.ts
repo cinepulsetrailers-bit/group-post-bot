@@ -45,21 +45,26 @@ export const syncGroups = createServerFn({ method: "POST" })
   .handler(async ({ context }) => {
     const cfg = await getBridge(context.userId);
     const raw = await bridgeCall<unknown>(cfg, "/list_dialogs", {});
-    const dialogs: { chat_id: number | string; title: string; username?: string | null }[] =
+    const r = raw as any;
+    const dialogs: { tg_chat_id?: number | string; chat_id?: number | string; title?: string; username?: string | null }[] =
       Array.isArray(raw)
-        ? (raw as any)
-        : Array.isArray((raw as any)?.dialogs)
-          ? (raw as any).dialogs
-          : Array.isArray((raw as any)?.result)
-            ? (raw as any).result
-            : [];
-    const rows = dialogs.map((d) => ({
-      user_id: context.userId,
-      tg_chat_id: Number(d.chat_id),
-      title: d.title ?? "Untitled",
-      username: d.username ?? null,
-      synced_at: new Date().toISOString(),
-    }));
+        ? r
+        : Array.isArray(r?.groups)
+          ? r.groups
+          : Array.isArray(r?.dialogs)
+            ? r.dialogs
+            : Array.isArray(r?.result)
+              ? r.result
+              : [];
+    const rows = dialogs
+      .map((d) => ({
+        user_id: context.userId,
+        tg_chat_id: Number(d.tg_chat_id ?? d.chat_id),
+        title: d.title ?? "Untitled",
+        username: d.username ?? null,
+        synced_at: new Date().toISOString(),
+      }))
+      .filter((r) => Number.isFinite(r.tg_chat_id) && r.tg_chat_id !== 0);
     if (rows.length) {
       const { error } = await supabaseAdmin
         .from("groups")
