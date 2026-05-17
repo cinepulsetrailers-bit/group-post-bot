@@ -203,13 +203,39 @@ function ComposePage() {
         </CardContent>
       </Card>
 
+      {sendStatus && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="font-medium">
+                Sending… {sendStatus.sent + sendStatus.failed} / {sendStatus.total}
+              </span>
+              <span className="text-muted-foreground">
+                ✅ {sendStatus.sent} · ❌ {sendStatus.failed} · ⏳ {sendStatus.pending}
+              </span>
+            </div>
+            <div className="h-2 w-full rounded bg-muted overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{
+                  width: `${sendStatus.total ? ((sendStatus.sent + sendStatus.failed) / sendStatus.total) * 100 : 0}%`,
+                }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              ⚠️ Is tab ko band mat karo jab tak send complete nahi ho jata.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       <Button
         size="lg"
         className="w-full"
-        disabled={m.isPending || !body.trim() || uploading}
-        onClick={() => m.mutate()}
+        disabled={sending || !body.trim() || uploading}
+        onClick={handleSend}
       >
-        {m.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Send className="size-4 mr-2" />}
+        {sending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Send className="size-4 mr-2" />}
         {schedule ? "Schedule post" : "Send now"}
       </Button>
     </div>
