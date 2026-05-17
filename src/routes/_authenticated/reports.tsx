@@ -23,11 +23,48 @@ export const Route = createFileRoute("/_authenticated/reports")({
 
 type StatusFilter = "all" | "sent" | "failed" | "pending";
 
+type ErrorCategory =
+  | "timeout"
+  | "flood"
+  | "blocked"
+  | "invalid_chat"
+  | "permission"
+  | "bridge_down"
+  | "auth"
+  | "other";
+
+const CATEGORY_META: Record<ErrorCategory, { label: string; emoji: string; hint: string }> = {
+  timeout: { label: "Timeout", emoji: "⏱️", hint: "Bridge took too long to respond" },
+  flood: { label: "Flood / Rate limit", emoji: "🌊", hint: "Telegram throttled — slow down or wait" },
+  blocked: { label: "Peer blocked / Kicked", emoji: "🚫", hint: "Bot was removed or blocked in this group" },
+  invalid_chat: { label: "Invalid chat", emoji: "❓", hint: "Group not found, deleted, or wrong ID" },
+  permission: { label: "Permission denied", emoji: "🔒", hint: "Not allowed to post (admin-only, restricted)" },
+  bridge_down: { label: "Bridge down (502)", emoji: "💥", hint: "Railway bridge crashed or sleeping" },
+  auth: { label: "Auth / Session", emoji: "🔑", hint: "Telegram session expired — re-login bridge" },
+  other: { label: "Other", emoji: "❔", hint: "Uncategorized error" },
+};
+
+function categorizeError(err: string | null | undefined): ErrorCategory {
+  if (!err) return "other";
+  const e = err.toLowerCase();
+  if (/\b50(2|3|4)\b|failed to respond|bad gateway|service unavailable/.test(e)) return "bridge_down";
+  if (/timeout|timed out|etimedout/.test(e)) return "timeout";
+  if (/flood|too many requests|slowmode|slow_mode|429/.test(e)) return "flood";
+  if (/blocked|kicked|user_banned|banned_in_channel|left the chat|chat_write_forbidden|forbidden/.test(e))
+    return "blocked";
+  if (/peer_id_invalid|chat not found|chat_id_invalid|invalid chat|peer not found|channel_invalid/.test(e))
+    return "invalid_chat";
+  if (/permission|not_allowed|admin_required|need administrator|rights/.test(e)) return "permission";
+  if (/unauthorized|auth_key|session|401|sign in/.test(e)) return "auth";
+  return "other";
+}
+
 function ReportsPage() {
   const listPostsFn = useServerFn(listPosts);
   const getReportFn = useServerFn(getPostReport);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useState<ErrorCategory | "all">("all");
   const [search, setSearch] = useState("");
 
   const postsQ = useQuery({
@@ -43,7 +80,11 @@ function ReportsPage() {
     refetchInterval: 4000,
   });
 
-  const rows = reportQ.data?.rows ?? [];
+  const rows = (reportQ.data?.rows ?? []).map((r) => ({
+    ...r,
+    category: r.status === "failed" ? categorizeError(r.error) : null,
+  }));
+
   const counts = useMemo(() => {
     const c = { sent: 0, failed: 0, pending: 0, total: rows.length };
     for (const r of rows) {
@@ -54,9 +95,30 @@ function ReportsPage() {
     return c;
   }, [rows]);
 
+  const categoryCounts = useMemo(() => {
+    const c: Record<ErrorCategory, number> = {
+      timeout: 0, flood: 0, blocked: 0, invalid_chat: 0,
+      permission: 0, bridge_down: 0, auth: 0, other: 0,
+    };
+    for (const r of rows) {
+      if (r.category) c[r.category]++;
+    }
+    return c;
+  }, [rows]);
+
+  const topCategory = useMemo(() => {
+    const entries = (Object.entries(categoryCounts) as [ErrorCategory, number][])
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1]);
+    return entries[0]?.[0] ?? null;
+  }, [categoryCounts]);
+
   const filtered = useMemo(() => {
     return rows.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
+      if (categoryFilter !== "all") {
+        if (r.status !== "failed" || r.category !== categoryFilter) return false;
+      }
       if (search) {
         const q = search.toLowerCase();
         const hay = `${r.group_title} ${r.group_username ?? ""} ${r.tg_chat_id} ${r.error ?? ""}`.toLowerCase();
@@ -64,7 +126,7 @@ function ReportsPage() {
       }
       return true;
     });
-  }, [rows, statusFilter, search]);
+  }, [rows, statusFilter, categoryFilter, search]);
 
   const exportCsv = () => {
     if (!filtered.length) return;
@@ -158,6 +220,61 @@ function ReportsPage() {
               />
             </div>
 
+            {/* Failure category breakdown */}
+            {counts.failed > 0 && (
+              <Card className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="font-semibold text-sm">Failure reasons</h3>
+                    {topCategory && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Top issue: <span className="font-medium text-foreground">
+                          {CATEGORY_META[topCategory].emoji} {CATEGORY_META[topCategory].label}
+                        </span> — {CATEGORY_META[topCategory].hint}
+                      </p>
+                    )}
+                  </div>
+                  {categoryFilter !== "all" && (
+                    <Button variant="ghost" size="sm" onClick={() => setCategoryFilter("all")}>
+                      Clear filter
+                    </Button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.entries(categoryCounts) as [ErrorCategory, number][])
+                    .filter(([, n]) => n > 0)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([cat, n]) => {
+                      const meta = CATEGORY_META[cat];
+                      const active = categoryFilter === cat;
+                      const pct = Math.round((n / counts.failed) * 100);
+                      return (
+                        <button
+                          key={cat}
+                          onClick={() => {
+                            setCategoryFilter(active ? "all" : cat);
+                            setStatusFilter("failed");
+                          }}
+                          title={meta.hint}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 rounded-md border text-sm transition-colors",
+                            active
+                              ? "bg-red-100 border-red-300 dark:bg-red-950 dark:border-red-800"
+                              : "hover:bg-accent border-border",
+                          )}
+                        >
+                          <span className="text-base">{meta.emoji}</span>
+                          <span className="font-medium">{meta.label}</span>
+                          <Badge variant="secondary" className="ml-1">
+                            {n} ({pct}%)
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                </div>
+              </Card>
+            )}
+
             {/* Filter bar */}
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -217,9 +334,16 @@ function ReportsPage() {
                       </p>
                     )}
                     {r.error && (
-                      <p className="text-xs text-red-600 mt-1 break-all font-mono bg-red-50 dark:bg-red-950/30 p-2 rounded">
-                        {r.error}
-                      </p>
+                      <>
+                        {r.category && (
+                          <Badge variant="outline" className="mt-1 text-xs">
+                            {CATEGORY_META[r.category].emoji} {CATEGORY_META[r.category].label}
+                          </Badge>
+                        )}
+                        <p className="text-xs text-red-600 mt-1 break-all font-mono bg-red-50 dark:bg-red-950/30 p-2 rounded">
+                          {r.error}
+                        </p>
+                      </>
                     )}
                   </div>
                 </div>
