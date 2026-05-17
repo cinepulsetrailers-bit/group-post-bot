@@ -20,6 +20,7 @@ const NAV = [
   { to: "/compose", label: "Compose", icon: Send },
   { to: "/groups", label: "Groups", icon: Users },
   { to: "/scheduled", label: "Scheduled", icon: Calendar },
+  { to: "/reports", label: "Delivery Report", icon: BarChart3 },
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
