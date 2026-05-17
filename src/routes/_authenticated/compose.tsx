@@ -20,6 +20,8 @@ function ComposePage() {
   const qc = useQueryClient();
   const list = useServerFn(listGroups);
   const post = useServerFn(createPost);
+  const chunk = useServerFn(processPostChunk);
+  const progress = useServerFn(getPostProgress);
   const { data: groups } = useQuery({ queryKey: ["groups"], queryFn: () => list() });
 
   const [body, setBody] = useState("");
@@ -29,6 +31,13 @@ function ComposePage() {
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [sendStatus, setSendStatus] = useState<{
+    total: number;
+    sent: number;
+    failed: number;
+    pending: number;
+  } | null>(null);
+  const [sending, setSending] = useState(false);
 
   async function uploadMedia(file: File) {
     setUploading(true);
@@ -49,9 +58,12 @@ function ComposePage() {
     }
   }
 
-  const m = useMutation({
-    mutationFn: () =>
-      post({
+  async function handleSend() {
+    if (!body.trim()) return;
+    setSending(true);
+    setSendStatus(null);
+    try {
+      const r = await post({
         data: {
           body,
           media_url: mediaUrl,
@@ -60,18 +72,43 @@ function ComposePage() {
           custom_group_ids: mode === "custom" ? custom : undefined,
           scheduled_at: schedule ? new Date(schedule).toISOString() : null,
         },
-      }),
-    onSuccess: (r) => {
-      if (r.scheduled) toast.success(`Scheduled for ${r.targets} group(s)`);
-      else toast.success(`Sent: ${r.ok ?? 0} ok, ${r.fail ?? 0} failed`);
+      });
+
+      if (r.scheduled) {
+        toast.success(`Scheduled for ${r.targets} group(s)`);
+        setBody("");
+        setMediaUrl(null);
+        setMediaType(null);
+        setSchedule("");
+        qc.invalidateQueries({ queryKey: ["posts"] });
+        return;
+      }
+
+      // Drive chunked send with live progress
+      setSendStatus({ total: r.targets, sent: 0, failed: 0, pending: r.targets });
+      toast.info(`Sending to ${r.targets} groups… (anti-ban delays applied)`);
+
+      let safety = 500; // hard cap
+      while (safety-- > 0) {
+        const c = await chunk({ data: { post_id: r.id, batch_size: 2 } });
+        const p = await progress({ data: { post_id: r.id } });
+        setSendStatus(p);
+        if (c.remaining === 0) break;
+      }
+
+      const final = await progress({ data: { post_id: r.id } });
+      toast.success(`Done: ${final.sent} sent, ${final.failed} failed`);
       setBody("");
       setMediaUrl(null);
       setMediaType(null);
       setSchedule("");
       qc.invalidateQueries({ queryKey: ["posts"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  }
 
   const selectedCount = (groups ?? []).filter((g) => g.is_selected).length;
 
