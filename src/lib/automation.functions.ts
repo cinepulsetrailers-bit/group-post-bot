@@ -154,7 +154,7 @@ async function sendPostNow(userId: string, postId: string) {
   for (const t of targets ?? []) {
     try {
       const payload: Record<string, unknown> = {
-        chat_id: Number(t.tg_chat_id),
+        chat_id: String(t.tg_chat_id),
         text: post.body || "",
       };
       let endpoint = "/send_message";
