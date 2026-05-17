@@ -22,15 +22,49 @@ for (const [k, v] of Object.entries({
   if (!v) { console.error(`Missing env: ${k}`); process.exit(1); }
 }
 
+// Global crash guards — without these, any unhandled async error in GramJS
+// (FLOOD_WAIT, disconnect, JSON parse, etc.) kills the Railway container.
+process.on("unhandledRejection", (reason) => {
+  console.error("⚠️  unhandledRejection:", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("⚠️  uncaughtException:", err);
+});
+
 const client = new TelegramClient(
   new StringSession(SESSION_STRING),
   Number(API_ID),
   API_HASH,
-  { connectionRetries: 5 },
+  {
+    connectionRetries: Infinity,
+    retryDelay: 3000,
+    autoReconnect: true,
+    floodSleepThreshold: 60,
+  },
 );
 
-await client.connect();
-console.log("✅ Telegram connected as", (await client.getMe()).username ?? "user");
+// Connect with retry loop so a transient Telegram outage doesn't crash boot
+let connected = false;
+for (let attempt = 1; attempt <= 10 && !connected; attempt++) {
+  try {
+    await client.connect();
+    const me = await client.getMe();
+    console.log("✅ Telegram connected as", me.username ?? me.firstName ?? "user");
+    connected = true;
+  } catch (e) {
+    console.error(`connect attempt ${attempt} failed:`, e?.message ?? e);
+    await new Promise((r) => setTimeout(r, Math.min(30000, 3000 * attempt)));
+  }
+}
+if (!connected) {
+  console.error("❌ Could not connect to Telegram after 10 attempts — exiting so Railway restarts");
+  process.exit(1);
+}
+
+// Keep-alive ping so Railway doesn't idle the container
+setInterval(() => {
+  client.getMe().catch((e) => console.error("keepalive getMe failed:", e?.message ?? e));
+}, 4 * 60 * 1000);
 
 // ---------- inbound (Telegram -> Lovable) ----------
 client.addEventHandler(async (event) => {
