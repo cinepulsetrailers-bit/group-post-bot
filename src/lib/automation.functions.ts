@@ -457,12 +457,12 @@ export const replyToChat = createServerFn({ method: "POST" })
     await supabaseAdmin.from("messages").insert({
       user_id: context.userId,
       tg_chat_id: data.tg_chat_id,
-      tg_message_id: Number(res.message_id),
+      tg_message_id: Number(res.tg_message_id ?? res.message_id),
       text: data.text,
       direction: "out",
       reply_to_tg_id: data.reply_to_tg_id ?? null,
     });
-    return { ok: true, message_id: res.message_id };
+    return { ok: true, message_id: res.tg_message_id ?? res.message_id };
   });
 
 // ---------- Internal cron-triggered runner (no auth — called by /api/public/hooks/run-scheduled) ----------
