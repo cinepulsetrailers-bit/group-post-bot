@@ -458,7 +458,13 @@ export async function runDuePostsInternal() {
   let count = 0;
   for (const p of due ?? []) {
     try {
-      await sendPostNow(p.user_id, p.id);
+      // Process all pending targets in chunks (cron has no Worker timeout
+      // concerns because it runs as its own request and we cap loop count).
+      let safety = 200;
+      while (safety-- > 0) {
+        const r = await processChunk(p.user_id, p.id, 2);
+        if (r.remaining === 0) break;
+      }
       count++;
     } catch (e) {
       await supabaseAdmin
