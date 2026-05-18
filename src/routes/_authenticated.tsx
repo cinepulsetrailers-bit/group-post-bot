@@ -6,6 +6,7 @@ import { Inbox, Send, Users, Calendar, Settings as SettingsIcon, LogOut, BarChar
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
+import { BridgeStatusIndicator } from "@/components/BridgeStatusIndicator";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
@@ -66,6 +67,7 @@ function AuthLayout() {
           })}
         </nav>
         <div className="p-3 border-t text-xs text-muted-foreground space-y-2">
+          <BridgeStatusIndicator />
           <div className="truncate">{user?.email}</div>
           <Button
             variant="outline"
