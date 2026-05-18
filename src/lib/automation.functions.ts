@@ -111,7 +111,72 @@ export const selectAllGroups = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// ---------- Posts ----------
+// Leave one or more Telegram groups (calls bridge /leave_chat) and delete them locally.
+// Returns per-group result so the UI can show partial failures.
+export const leaveGroups = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => z.object({ group_ids: z.array(z.string().uuid()).min(1).max(200) }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: groups, error } = await supabaseAdmin
+      .from("groups")
+      .select("id, tg_chat_id, title")
+      .eq("user_id", context.userId)
+      .in("id", data.group_ids);
+    if (error) throw new Error(error.message);
+    const cfg = await getBridge(context.userId);
+    const results: { id: string; title: string; ok: boolean; error?: string }[] = [];
+    const leftIds: string[] = [];
+    for (const g of groups ?? []) {
+      try {
+        await bridgeCall(cfg, "/leave_chat", { tg_chat_id: String(g.tg_chat_id) });
+        results.push({ id: g.id, title: g.title, ok: true });
+        leftIds.push(g.id);
+      } catch (e) {
+        results.push({ id: g.id, title: g.title, ok: false, error: (e as Error).message });
+      }
+      // small delay to avoid flood
+      await new Promise((r) => setTimeout(r, 800));
+    }
+    if (leftIds.length) {
+      await supabaseAdmin.from("groups").delete().eq("user_id", context.userId).in("id", leftIds);
+    }
+    return { results, left: leftIds.length, failed: (groups?.length ?? 0) - leftIds.length };
+  });
+
+// Returns group ids of groups where the latest post failed (excluding transient 502/timeout errors).
+export const listFailedGroupsFromLastPost = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data: lastPost } = await supabaseAdmin
+      .from("posts")
+      .select("id")
+      .eq("user_id", context.userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!lastPost) return [];
+    const { data: targets } = await supabaseAdmin
+      .from("post_targets")
+      .select("group_id, error")
+      .eq("post_id", lastPost.id)
+      .eq("user_id", context.userId)
+      .eq("status", "failed");
+    const groupIds = Array.from(new Set(
+      (targets ?? [])
+        .filter((t) => t.error && !/502|503|504|failed to respond|timeout/i.test(t.error))
+        .map((t) => t.group_id)
+        .filter(Boolean),
+    ));
+    if (groupIds.length === 0) return [];
+    const { data: groups } = await supabaseAdmin
+      .from("groups")
+      .select("id, title, username, tg_chat_id")
+      .eq("user_id", context.userId)
+      .in("id", groupIds);
+    return groups ?? [];
+  });
+
+
 const PostInput = z.object({
   body: z.string().max(4096),
   media_url: z.string().nullable().optional(),
