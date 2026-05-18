@@ -96,7 +96,15 @@ connectTelegram();
 
 // Keep-alive ping so Railway doesn't idle the container
 setInterval(() => {
-  client.getMe().catch((e) => console.error("keepalive getMe failed:", e?.message ?? e));
+  if (!telegramReady || !client.connected) {
+    connectTelegram();
+    return;
+  }
+  client.getMe().catch((e) => {
+    console.error("keepalive getMe failed:", e?.message ?? e);
+    telegramReady = false;
+    connectTelegram();
+  });
 }, 4 * 60 * 1000);
 
 // ---------- inbound (Telegram -> Lovable) ----------
@@ -150,10 +158,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) => res.json({ ok: true, telegramReady, telegramConnected: !!client.connected }));
 
 app.post("/list_dialogs", async (_req, res) => {
   try {
+    await ensureTelegramReady();
     const dialogs = await client.getDialogs({ limit: 500 });
     const groups = dialogs
       .filter((d) => d.isGroup || d.isChannel)
@@ -225,6 +234,8 @@ async function withTimeout(promise, label, ms = 25000) {
 async function resolvePeer(tg_chat_id) {
   const idStr = String(tg_chat_id).trim();
   if (!/^-?\d+$/.test(idStr)) throw new Error(`Invalid tg_chat_id: ${idStr}`);
+
+  await ensureTelegramReady();
 
   await warmDialogs();
 
