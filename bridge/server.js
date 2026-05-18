@@ -43,23 +43,56 @@ const client = new TelegramClient(
   },
 );
 
-// Connect with retry loop so a transient Telegram outage doesn't crash boot
-let connected = false;
-for (let attempt = 1; attempt <= 10 && !connected; attempt++) {
-  try {
-    await client.connect();
-    const me = await client.getMe();
-    console.log("✅ Telegram connected as", me.username ?? me.firstName ?? "user");
-    connected = true;
-  } catch (e) {
-    console.error(`connect attempt ${attempt} failed:`, e?.message ?? e);
-    await new Promise((r) => setTimeout(r, Math.min(30000, 3000 * attempt)));
+// Connect in the background. Railway must receive an open HTTP port quickly;
+// otherwise every /send_message request becomes a platform-level 502
+// "connection refused" before our JSON error handler can respond.
+let telegramReady = false;
+let telegramConnecting = null;
+
+async function connectTelegram() {
+  if (telegramReady) return;
+  if (telegramConnecting) return telegramConnecting;
+
+  telegramConnecting = (async () => {
+    let attempt = 1;
+    while (!telegramReady) {
+      try {
+        if (!client.connected) await client.connect();
+        const me = await client.getMe();
+        console.log("✅ Telegram connected as", me.username ?? me.firstName ?? "user");
+        telegramReady = true;
+        await warmDialogs(true);
+        return;
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        console.error(`connect attempt ${attempt} failed:`, msg);
+        if (msg.includes("AUTH_KEY_DUPLICATED")) {
+          console.error("⚠️ Same SESSION_STRING is active in another Railway/container/process. Stop old deployments or generate a fresh session string.");
+        }
+        telegramReady = false;
+        const delay = Math.min(60000, 3000 * attempt++);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  })().finally(() => {
+    telegramConnecting = null;
+  });
+
+  return telegramConnecting;
+}
+
+async function ensureTelegramReady() {
+  if (telegramReady && client.connected) return;
+  connectTelegram();
+  const started = Date.now();
+  while (Date.now() - started < 15000) {
+    if (telegramReady && client.connected) return;
+    await new Promise((r) => setTimeout(r, 500));
   }
+  throw new Error("Telegram bridge is still connecting. Check Railway Deploy Logs for AUTH_KEY_DUPLICATED or session errors.");
 }
-if (!connected) {
-  console.error("❌ Could not connect to Telegram after 10 attempts — exiting so Railway restarts");
-  process.exit(1);
-}
+
+connectTelegram();
 
 // Keep-alive ping so Railway doesn't idle the container
 setInterval(() => {
