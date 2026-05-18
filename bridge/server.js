@@ -151,7 +151,7 @@ const app = express();
 app.use(express.json({ limit: "20mb" }));
 
 app.use((req, res, next) => {
-  if (req.path === "/health") return next();
+  if (req.path === "/health" || req.path === "/status") return next();
   if (req.headers["x-shared-secret"] !== SHARED_SECRET) {
     return res.status(401).json({ error: "unauthorized" });
   }
@@ -159,6 +159,22 @@ app.use((req, res, next) => {
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true, telegramReady, telegramConnected: !!client.connected }));
+
+// Lightweight public status endpoint — no auth so the UI can poll it directly.
+// Returns just enough for a connection indicator (no chat data leakage).
+const bootAt = Date.now();
+app.get("/status", (_req, res) => {
+  res.json({
+    ok: true,
+    telegramReady,
+    telegramConnected: !!client.connected,
+    dialogsWarmed,
+    cachedDialogs: dialogEntityCache.size,
+    queueSize: messageQueue.length,
+    uptimeSeconds: Math.floor((Date.now() - bootAt) / 1000),
+    serverTime: new Date().toISOString(),
+  });
+});
 
 app.post("/list_dialogs", async (_req, res) => {
   try {
