@@ -67,6 +67,7 @@ function AuthLayout() {
           })}
         </nav>
         <div className="p-3 border-t text-xs text-muted-foreground space-y-2">
+          <BridgeStatusIndicator />
           <div className="truncate">{user?.email}</div>
           <Button
             variant="outline"
