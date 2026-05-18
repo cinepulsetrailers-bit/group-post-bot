@@ -58,14 +58,19 @@ function GroupsPage() {
     mutationFn: (group_ids: string[]) => leave({ data: { group_ids } }),
     onSuccess: (r) => {
       if (r.failed > 0) {
-        toast.warning(`Left ${r.left} groups, ${r.failed} failed`);
+        const firstErr = r.results.find((x) => !x.ok)?.error ?? "unknown error";
+        toast.warning(`Left ${r.left}, ${r.failed} failed`, {
+          description: firstErr.slice(0, 300),
+          duration: 12000,
+        });
+        console.error("leaveGroups failures:", r.results.filter((x) => !x.ok));
       } else {
         toast.success(`Left ${r.left} group${r.left === 1 ? "" : "s"} on Telegram`);
       }
       qc.invalidateQueries({ queryKey: ["groups"] });
       qc.invalidateQueries({ queryKey: ["failedGroupsLastPost"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message, { duration: 12000 }),
   });
 
   const askLeave = (ids: string[], title: string) => {
