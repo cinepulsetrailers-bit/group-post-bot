@@ -380,7 +380,7 @@ async function processQueue() {
       const job = messageQueue[0];
       job.attempts += 1;
       try {
-        const result = await executeJob(job);
+        const result = await executeJobOnce(job);
         console.log(`✅ Sent queued ${job.type} job ${job.id} → tg_message_id=${result.tg_message_id} (waited ${Date.now() - job.enqueuedAt}ms)`);
         messageQueue.shift();
       } catch (e) {
