@@ -455,6 +455,41 @@ app.post("/send_message", (req, res) => handleSendRequest("send_message", req, r
 app.post("/send_media",   (req, res) => handleSendRequest("send_media",   req, res));
 app.post("/reply",        (req, res) => handleSendRequest("reply",        req, res));
 
+// Leave / delete a chat (supergroup, channel, or basic group).
+// Telegram differentiates: channels/supergroups use channels.LeaveChannel,
+// basic groups use messages.DeleteChatUser with the current user.
+app.post("/leave_chat", async (req, res) => {
+  try {
+    const { tg_chat_id } = req.body ?? {};
+    if (!tg_chat_id) return res.status(400).json({ error: "tg_chat_id required" });
+    await ensureTelegramReady();
+    const peer = await resolvePeer(tg_chat_id);
+    // Channel/supergroup: InputPeerChannel
+    if (peer.className === "InputPeerChannel") {
+      await client.invoke(new Api.channels.LeaveChannel({
+        channel: new Api.InputChannel({ channelId: peer.channelId, accessHash: peer.accessHash }),
+      }));
+      return res.json({ ok: true, left: "channel" });
+    }
+    // Basic group: InputPeerChat
+    if (peer.className === "InputPeerChat") {
+      const me = await client.getMe();
+      await client.invoke(new Api.messages.DeleteChatUser({
+        chatId: peer.chatId,
+        userId: new Api.InputUserSelf(),
+      })).catch(async () => {
+        // Fallback older API shape
+        await client.invoke(new Api.messages.DeleteChat({ chatId: peer.chatId }));
+      });
+      return res.json({ ok: true, left: "chat", userId: String(me.id) });
+    }
+    res.status(400).json({ error: `Unsupported peer type: ${peer.className}` });
+  } catch (e) {
+    console.error("leave_chat error:", e?.message ?? e);
+    res.status(500).json({ error: String(e?.message ?? e) });
+  }
+});
+
 app.get("/queue_status", (_req, res) => {
   res.json({
     size: messageQueue.length,
