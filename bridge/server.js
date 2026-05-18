@@ -260,49 +260,139 @@ async function resolvePeer(tg_chat_id) {
   throw new Error(`Chat ${idStr} not found in Telegram dialogs. Make sure this Telegram account is joined to the group, then sync groups again.`);
 }
 
-app.post("/send_message", async (req, res) => {
-  try {
-    const { tg_chat_id, text } = req.body;
-    const peer = await resolvePeer(tg_chat_id);
-    const sent = await withTimeout(client.sendMessage(peer, { message: text }), "send_message");
-    res.json({ tg_message_id: sent.id });
-  } catch (e) {
-    console.error("send_message error:", e?.message ?? e);
-    res.status(500).json({ error: String(e?.message ?? e) });
-  }
-});
+// ---------- Message queue ----------
+// If Telegram isn't ready yet (cold boot, reconnecting, FLOOD_WAIT),
+// instead of failing the request we push the job to an in-memory queue
+// and a background worker drains it as soon as Telegram is ready again.
+const messageQueue = [];
+let queueSeq = 0;
+let queueProcessing = false;
 
-app.post("/send_media", async (req, res) => {
-  try {
-    const { tg_chat_id, media_url, caption } = req.body;
-    const peer = await resolvePeer(tg_chat_id);
-    const mediaResponse = await withTimeout(fetch(media_url), "fetch media", 25000);
+function enqueueJob(type, payload) {
+  const job = {
+    id: `q_${Date.now()}_${++queueSeq}`,
+    type,
+    payload,
+    attempts: 0,
+    enqueuedAt: Date.now(),
+    lastError: null,
+  };
+  messageQueue.push(job);
+  console.log(`📥 Queued ${type} job ${job.id} (queue size: ${messageQueue.length})`);
+  processQueueSoon();
+  return job;
+}
+
+function processQueueSoon() {
+  setTimeout(() => { processQueue().catch((e) => console.error("queue loop error:", e)); }, 100);
+}
+
+async function executeJob(job) {
+  const { type, payload } = job;
+  const peer = await resolvePeer(payload.tg_chat_id);
+  if (type === "send_message") {
+    const sent = await withTimeout(client.sendMessage(peer, { message: payload.text }), "send_message");
+    return { tg_message_id: sent.id };
+  }
+  if (type === "reply") {
+    const sent = await withTimeout(client.sendMessage(peer, {
+      message: payload.text,
+      replyTo: payload.reply_to_msg_id,
+    }), "reply");
+    return { tg_message_id: sent.id };
+  }
+  if (type === "send_media") {
+    const mediaResponse = await withTimeout(fetch(payload.media_url), "fetch media", 25000);
     if (!mediaResponse.ok) throw new Error(`Media download failed: ${mediaResponse.status}`);
     const buf = Buffer.from(await withTimeout(mediaResponse.arrayBuffer(), "read media", 25000));
-    const sent = await withTimeout(client.sendFile(peer, {
-      file: buf,
-      caption: caption ?? "",
-    }), "send_media", 60000);
-    res.json({ tg_message_id: sent.id });
-  } catch (e) {
-    console.error("send_media error:", e?.message ?? e);
-    res.status(500).json({ error: String(e?.message ?? e) });
+    const sent = await withTimeout(client.sendFile(peer, { file: buf, caption: payload.caption ?? "" }), "send_media", 60000);
+    return { tg_message_id: sent.id };
   }
-});
+  throw new Error(`Unknown job type: ${type}`);
+}
 
-app.post("/reply", async (req, res) => {
+async function processQueue() {
+  if (queueProcessing) return;
+  queueProcessing = true;
   try {
-    const { tg_chat_id, reply_to_msg_id, text } = req.body;
-    const peer = await resolvePeer(tg_chat_id);
-    const sent = await withTimeout(client.sendMessage(peer, {
-      message: text,
-      replyTo: reply_to_msg_id,
-    }), "reply");
-    res.json({ tg_message_id: sent.id });
-  } catch (e) {
-    console.error("reply error:", e?.message ?? e);
-    res.status(500).json({ error: String(e?.message ?? e) });
+    while (messageQueue.length > 0) {
+      if (!telegramReady || !client.connected) {
+        // Try to reconnect; bail out so the keepalive / next enqueue retries.
+        connectTelegram();
+        return;
+      }
+      const job = messageQueue[0];
+      job.attempts += 1;
+      try {
+        const result = await executeJob(job);
+        console.log(`✅ Sent queued ${job.type} job ${job.id} → tg_message_id=${result.tg_message_id} (waited ${Date.now() - job.enqueuedAt}ms)`);
+        messageQueue.shift();
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        job.lastError = msg;
+        console.error(`❌ Queued ${job.type} job ${job.id} attempt ${job.attempts} failed:`, msg);
+        if (job.attempts >= 5) {
+          console.error(`💀 Dropping job ${job.id} after ${job.attempts} attempts`);
+          messageQueue.shift();
+        } else {
+          // backoff before retrying
+          const delay = Math.min(60000, 2000 * job.attempts);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+  } finally {
+    queueProcessing = false;
   }
+}
+
+// Background drainer — runs every 5s in case a job was added while
+// Telegram was down and connectTelegram() only succeeded later.
+setInterval(() => {
+  if (messageQueue.length > 0 && telegramReady && client.connected) {
+    processQueue().catch((e) => console.error("queue loop error:", e));
+  }
+}, 5000);
+
+async function handleSendRequest(type, req, res) {
+  // Fast path: Telegram already ready → send synchronously and return tg_message_id.
+  if (telegramReady && client.connected) {
+    try {
+      const result = await executeJob({ type, payload: req.body });
+      return res.json(result);
+    } catch (e) {
+      const msg = String(e?.message ?? e);
+      console.error(`${type} sync error:`, msg);
+      // If Telegram dropped mid-call, fall through to queue.
+      if (telegramReady && client.connected) {
+        return res.status(500).json({ error: msg });
+      }
+    }
+  }
+  // Slow path: queue it and tell the caller it's pending.
+  const job = enqueueJob(type, req.body);
+  res.status(202).json({
+    queued: true,
+    queue_id: job.id,
+    queue_size: messageQueue.length,
+    message: "Telegram bridge not ready yet — message queued and will send automatically.",
+  });
+}
+
+app.post("/send_message", (req, res) => handleSendRequest("send_message", req, res));
+app.post("/send_media",   (req, res) => handleSendRequest("send_media",   req, res));
+app.post("/reply",        (req, res) => handleSendRequest("reply",        req, res));
+
+app.get("/queue_status", (_req, res) => {
+  res.json({
+    size: messageQueue.length,
+    telegramReady,
+    telegramConnected: !!client.connected,
+    jobs: messageQueue.map((j) => ({
+      id: j.id, type: j.type, attempts: j.attempts,
+      enqueuedAt: j.enqueuedAt, lastError: j.lastError,
+    })),
+  });
 });
 
 app.listen(PORT, () => console.log(`🌉 Bridge listening on :${PORT}`));
