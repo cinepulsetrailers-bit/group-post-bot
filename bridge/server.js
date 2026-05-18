@@ -287,7 +287,26 @@ function processQueueSoon() {
   setTimeout(() => { processQueue().catch((e) => console.error("queue loop error:", e)); }, 100);
 }
 
-async function executeJob(job) {
+// Errors we treat as transient → safe to retry with backoff.
+// Permanent errors (CHAT_WRITE_FORBIDDEN, PEER_ID_INVALID, USER_BANNED, etc.)
+// are surfaced immediately so the user can fix them.
+function isTransientError(err) {
+  const msg = String(err?.message ?? err).toUpperCase();
+  if (!msg) return false;
+  const transientPatterns = [
+    "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN",
+    "EPIPE", "EHOSTUNREACH", "ENETUNREACH", "SOCKET HANG UP",
+    "TIMED OUT", "TIMEOUT",
+    "NOT CONNECTED", "DISCONNECT", "CONNECTION CLOSED",
+    "FLOOD_WAIT", "SLOWMODE_WAIT",
+    "MSG_WAIT_FAILED", "RPC_CALL_FAIL", "AUTH_KEY_UNREGISTERED",
+    "TELEGRAM BRIDGE IS STILL CONNECTING",
+    "502", "503", "504",
+  ];
+  return transientPatterns.some((p) => msg.includes(p));
+}
+
+async function executeJobOnce(job) {
   const { type, payload } = job;
   const peer = await resolvePeer(payload.tg_chat_id);
   if (type === "send_message") {
@@ -311,6 +330,43 @@ async function executeJob(job) {
   throw new Error(`Unknown job type: ${type}`);
 }
 
+// Inline retry with exponential backoff for transient errors.
+// Used by the sync fast-path so a flaky Telegram connection still
+// returns a real tg_message_id without going through the queue.
+async function executeJob(job, { maxAttempts = 5 } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await executeJobOnce(job);
+      if (attempt > 1) {
+        console.log(`✅ ${job.type} succeeded on attempt ${attempt}`);
+      }
+      return result;
+    } catch (e) {
+      lastErr = e;
+      const msg = String(e?.message ?? e);
+      if (!isTransientError(e) || attempt === maxAttempts) {
+        if (attempt === maxAttempts) {
+          console.error(`💥 ${job.type} failed after ${attempt} attempts:`, msg);
+        }
+        throw e;
+      }
+      // FLOOD_WAIT_<seconds> → honor server-requested delay (capped).
+      const floodMatch = /FLOOD_WAIT_(\d+)/i.exec(msg);
+      const baseDelay = floodMatch
+        ? Math.min(60000, (Number(floodMatch[1]) + 1) * 1000)
+        : Math.min(15000, 1000 * Math.pow(2, attempt - 1)); // 1s, 2s, 4s, 8s, 15s
+      const jitter = Math.floor(Math.random() * 500);
+      const delay = baseDelay + jitter;
+      console.warn(`⏳ ${job.type} attempt ${attempt} failed (${msg}). Retrying in ${delay}ms…`);
+      // Nudge a reconnect if the socket dropped.
+      if (!telegramReady || !client.connected) connectTelegram();
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
 async function processQueue() {
   if (queueProcessing) return;
   queueProcessing = true;
@@ -324,7 +380,7 @@ async function processQueue() {
       const job = messageQueue[0];
       job.attempts += 1;
       try {
-        const result = await executeJob(job);
+        const result = await executeJobOnce(job);
         console.log(`✅ Sent queued ${job.type} job ${job.id} → tg_message_id=${result.tg_message_id} (waited ${Date.now() - job.enqueuedAt}ms)`);
         messageQueue.shift();
       } catch (e) {
